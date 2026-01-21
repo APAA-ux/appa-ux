@@ -1,18 +1,37 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import os
-import sys
+import json
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-# Try to import google sheets auth
-try:
-    from google_sheets_auth import read_sheet, get_creds
-    GOOGLE_SHEETS_AVAILABLE = True
-except Exception as e:
-    print(f"Google Sheets not available: {e}")
-    GOOGLE_SHEETS_AVAILABLE = False
-    get_creds = None
+# --- CONFIGURATION ---
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_GOES_HERE' # <--- TRIPLE CHECK THIS ID IS CORRECT
+RANGE_NAME = 'Sheet1!A:E' 
+
+def get_creds():
+    """
+    Tries to load credentials from Streamlit Secrets (Cloud) first,
+    then falls back to local file (Development).
+    """
+    creds = None
+    
+    # 1. Try Secrets (Cloud Method)
+    if "token" in st.secrets and "token_json" in st.secrets["token"]:
+        try:
+            token_info = json.loads(st.secrets["token"]["token_json"])
+            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+            return creds
+        except Exception as e:
+            st.error(f"Secrets found but failed to load: {e}")
+
+    # 2. Try Local File (Codespaces Method)
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        return creds
+
+    return None
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
