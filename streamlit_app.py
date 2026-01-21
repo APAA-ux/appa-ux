@@ -308,7 +308,8 @@ else:
         
         # Google Sheets Option
         st.markdown("### 📊 Data Source")
-        if GOOGLE_SHEETS_AVAILABLE and get_creds:
+        creds = get_creds()
+        if creds:
             use_google_sheets = st.checkbox("Use Google Sheets (Beta)", value=False, help="Requires authentication")
             
             if use_google_sheets:
