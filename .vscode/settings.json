@@ -1,0 +1,8 @@
+{
+  "python.defaultInterpreterPath": "/workspaces/appa-ux/.venv/bin/python",
+  "python.terminal.executeInFileDir": true,
+  "terminal.integrated.env.linux": {
+    "VIRTUAL_ENV": "/workspaces/appa-ux/.venv"
+  },
+  "terminal.integrated.shellArgs.linux": ["-i"]
+}
