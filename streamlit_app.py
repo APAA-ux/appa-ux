@@ -12,6 +12,24 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_GOES_HERE' # <--- TRIPLE CHECK THIS ID IS CORRECT
 RANGE_NAME = 'Sheet1!A:E' 
 
+
+def _load_token_json_from_secrets():
+    """Safely load token_json from Streamlit secrets, returning None if unavailable."""
+    try:
+        token_section = st.secrets.get("token")
+    except Exception:
+        return None
+
+    if not isinstance(token_section, dict):
+        return None
+    return token_section.get("token_json")
+
+
+def google_sheets_available():
+    """Return True when we have secrets or a saved token to use Google Sheets."""
+    token_json = _load_token_json_from_secrets()
+    return bool(token_json) or os.path.exists("token.json")
+
 def get_creds():
     """
     Tries to load credentials from Streamlit Secrets (Cloud) first,
@@ -20,9 +38,10 @@ def get_creds():
     creds = None
     
     # 1. Try Secrets (Cloud Method)
-    if "token" in st.secrets and "token_json" in st.secrets["token"]:
+    token_json = _load_token_json_from_secrets()
+    if token_json:
         try:
-            token_info = json.loads(st.secrets["token"]["token_json"])
+            token_info = json.loads(token_json)
             creds = Credentials.from_authorized_user_info(token_info, SCOPES)
             return creds
         except Exception as e:
@@ -152,6 +171,12 @@ APA_PURPLE = '#33006F'
 APA_GOLD = '#C5A059'
 APA_GREY = '#E2E8F0'
 
+# Known spelling corrections for rep names
+NAME_FIXES = {
+    'mekenzie': 'Kenzie',
+    'mckenzie': 'Kenzie',
+}
+
 # --- DATA PARSING FUNCTIONS ---
 def clean_currency(x):
     """Clean currency strings and error codes like #DIV/0!"""
@@ -161,9 +186,34 @@ def clean_currency(x):
             return 0
     return pd.to_numeric(x, errors='coerce')
 
+
+def normalize_name(name):
+    """Standardize salesperson names (fix common variants)."""
+    if not isinstance(name, str):
+        return name
+
+    # Normalize common invisible characters and whitespace
+    cleaned = (
+        name.replace('\xa0', ' ')
+        .replace('\u200b', '')
+        .strip()
+    )
+    cleaned = ' '.join(cleaned.split())  # collapse internal whitespace
+
+    lowered = cleaned.lower()
+    fix = NAME_FIXES.get(lowered)
+    if fix:
+        return fix
+
+    # Fallback: fuzzy contains for kenzie variants
+    if 'kenz' in lowered:
+        return 'Kenzie'
+
+    return cleaned
+
 def load_from_google_sheets():
     """Load data from Google Sheets - returns dict with month DataFrames or None if unavailable"""
-    if not GOOGLE_SHEETS_AVAILABLE:
+    if not google_sheets_available():
         return None
     
     try:
@@ -220,7 +270,7 @@ def load_and_parse_data():
                 
                 # Cleanup and Forward Fill Names (handle merged cells)
                 perf_sub = perf_sub.dropna(subset=['Week']) 
-                perf_sub['Name'] = perf_sub['Name'].ffill()
+                perf_sub['Name'] = perf_sub['Name'].ffill().apply(normalize_name)
                 perf_sub['Month'] = month
                 
                 # Normalize Columns (Total Contracts vs Closed Contracts)
@@ -324,7 +374,7 @@ else:
                     st.error(f"❌ Authentication failed: {e}")
         else:
             st.markdown("**Status:** Using CSV data")
-            if not GOOGLE_SHEETS_AVAILABLE:
+            if not google_sheets_available():
                 st.caption("Google Sheets not configured yet")
         st.markdown("---")
         
@@ -358,6 +408,11 @@ else:
         cat_filtered = cat_df[cat_df['Month'].isin(selected_months)]
     else:
         leads_filtered, perf_filtered, cat_filtered = leads_df, perf_df, cat_df
+
+    # Normalize names in performance data to avoid duplicates (e.g., Mekenzie vs Kenzie)
+    if not perf_filtered.empty:
+        perf_filtered = perf_filtered.copy()
+        perf_filtered['Name'] = perf_filtered['Name'].apply(normalize_name)
 
     # --- KPI CALCULATIONS ---
     total_leads = leads_filtered[['Jotform', 'Facebook', 'Phone', 'Walk-In', 'Email', 'Other']].apply(pd.to_numeric, errors='coerce').sum().sum()
@@ -475,6 +530,10 @@ else:
         with st.container(border=False):
             st.markdown('<p class="chart-title">👥 Team Performance</p>', unsafe_allow_html=True)
             if not perf_filtered.empty:
+                # Re-normalize just in case new data introduced variants
+                perf_filtered = perf_filtered.copy()
+                perf_filtered['Name'] = perf_filtered['Name'].apply(normalize_name)
+
                 rep_stats = perf_filtered.groupby('Name').agg({
                     'Leads': 'sum',
                     'Contracts': 'sum'
